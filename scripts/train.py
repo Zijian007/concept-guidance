@@ -2,7 +2,8 @@ import argparse
 import json
 import random
 from pathlib import Path
-
+import sys
+print(sys.path)
 import numpy as np
 import torch
 from transformers import (

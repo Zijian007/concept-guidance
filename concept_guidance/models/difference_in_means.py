@@ -45,7 +45,7 @@ class DiMProbe(BaseProbe):
 
     @torch.no_grad()
     def fit(self, X: list[torch.Tensor] | torch.Tensor, y: torch.Tensor, show_progress: bool = True):
-        xs, ys = adaptive_flatten(X, y)
+        xs, ys = adaptive_flatten(X, y) # ys is the element-wise label of the input sequence. xs is a tensor with size [8000, num_layer, dim], where 8000 is the concated sequence.
 
         if self.normalize:
             self.mean_ = stable_mean(xs.to(self.device), dim=0).unsqueeze(0).cpu()
@@ -59,11 +59,11 @@ class DiMProbe(BaseProbe):
 
         xs, ys = self.prepare_inputs(xs, ys)
 
-        mean_xs = stable_mean(xs * ys, dim=0).to(torch.float32)
+        mean_xs = stable_mean(xs * ys, dim=0).to(torch.float32)  #weighted mean of xs, where the weight is ys 1 or -1， its actuall a direction vector
         ws = (mean_xs / mean_xs.norm(dim=-1, keepdim=True).clip(self.eps)).to(xs.dtype)
         self.direction_ = ws.cpu()
 
-        alphas = torch.einsum("ild,ld->il", xs, ws)
+        alphas = torch.einsum("ild,ld->il", xs, ws) #alphas is the projection of xs to the direction of ws
 
         self.clfs_ = []
         for i in tqdm.trange(xs.shape[-2], disable=not show_progress):
@@ -74,7 +74,7 @@ class DiMProbe(BaseProbe):
                 tol=1e-3,
             )
             clf.fit(alphas[:, i, None].cpu().float().numpy(), ys.view(-1).cpu().float().numpy())
-            self.clfs_.append(clf)
+            self.clfs_.append(clf)  #classifier for each layer
 
     @torch.no_grad()
     def predict(self, X: list[torch.Tensor] | torch.Tensor):

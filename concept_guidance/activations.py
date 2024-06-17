@@ -55,6 +55,53 @@ def get_tokens(
 
     return inputs, num_completion_tokens
 
+def get_tokens_from_nonchat(
+    tokenizer: PreTrainedTokenizerBase,
+    message: dict[str, str],
+    system_prompt: str = "",
+    max_length: int = 1024,
+    max_assistant_tokens: int = 512,
+    truncation: bool = True,
+):
+    # history = [] if "conversation_history" not in message or message["conversation_history"] is None else copy.deepcopy(message["conversation_history"])
+    # history.extend([
+    #     {"role": "user", "content": message["prompt"]},
+    #     {"role": "assistant", "content": message["completion"]},
+    # ])
+    # if system_prompt:
+    #     history = [{"role": "system", "content": system_prompt}] + history
+
+    # prompt = tokenizer.apply_chat_template(history, tokenize=False)
+    prompt = "question: " + message["question"] + "\nanswer: " + message["answer"]
+    if message["answer"]:
+        # TODO this does not work for short answers, e.g. for MMLU ... 
+        # prefix = prompt.split(message["answer"])[0].strip()
+        # history_ = copy.deepcopy(history)
+        # history_.pop()
+        # history_.append({"role": "assistant", "content": ""})
+        # prompt_ = tokenizer.apply_chat_template(history_, tokenize=False)
+        num_prefix_tokens = len(tokenizer(message["question"], add_special_tokens=False)["input_ids"]) - 2 # remove the last two tokens for the empty answer TODO does this hold for all tokenizers?? (I think so)
+    else:
+        prefix = prompt.strip()
+        num_prefix_tokens = len(tokenizer(prefix, add_special_tokens=False)["input_ids"])
+
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=False, add_special_tokens=False)
+
+    # truncate right (assistant response)
+    if truncation and max_assistant_tokens > 0:
+        for key in inputs:
+            inputs[key] = inputs[key][:, :num_prefix_tokens + max_assistant_tokens]
+    num_completion_tokens = len(inputs["input_ids"][0]) - num_prefix_tokens
+
+    # truncate left (history)
+    if truncation and max_length > 0:
+        for key in inputs:
+            inputs[key] = inputs[key][:, -max_length:]
+        num_completion_tokens = min(max_length, num_completion_tokens)
+
+    return inputs, num_completion_tokens
+
+
 
 RepresentationType = Literal[
     "hiddens", "pre-attn", "queries", "keys", "values", "heads", "mlp", "post-attn"
@@ -67,8 +114,8 @@ def compute_activations(
     messages: list[dict[str, str]],
     system_prompt: str = "",
     representation: RepresentationType = "pre-attn",  
-    ctx_len: int = 16,
-    max_assistant_tokens: int = 32,
+    ctx_len: int = 128,
+    max_assistant_tokens: int = 128,
     max_input_len=1024, 
     truncation=True, 
     max_messages=-1,
@@ -121,7 +168,7 @@ def compute_activations(
                 if len(activations) >= max_messages:
                     break
 
-                inputs, num_completion_tokens = get_tokens(
+                inputs, num_completion_tokens = get_tokens_from_nonchat(
                     tokenizer, msg,
                     system_prompt=system_prompt,
                     max_length=max_input_len,
